@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+.ext-recorder-panel {
+    position: fixed;
+    top: 0;
+    right: -400px;
+    width: 400px;
+    height: 100vh;
+    background: white;
+    box-shadow: -5px 0 25px rgba(0, 0, 0, 0.15);
+    z-index: 99999;
+    transition: right 0.3s ease;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  
+  .ext-recorder-panel.visible {
+    right: 0;
+  }
+  
+  .ext-recorder-header {
+    height: 56px;
+    padding: 0 16px;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .ext-recorder-controls {
+    padding: 16px;
+    background: white;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  
+  .ext-recorder-button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    margin: 0 4px;
+  }
+  
+  .ext-recorder-button.primary {
+    background: #6366f1;
+    color: white;
+  }
+  
+  .ext-recorder-button.secondary {
+    background: #ef4444;
+    color: white;
+  }
+  
+  .ext-recorder-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    background: #f9fafb;
+  }

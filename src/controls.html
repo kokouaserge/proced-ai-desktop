@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      body {
+        margin: 0;
+        padding: 10px;
+        background: transparent;
+      }
+
+      .controls {
+        display: flex;
+        gap: 6px;
+        justify-content: space-between;
+      }
+
+      button {
+        background: rgba(0, 0, 0, 0.8);
+        border: none;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-family: system-ui;
+        font-size: 14px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s;
+        text-align: center;
+        min-width: 70px;
+        text-align: center;
+      }
+
+      #pauseBtn {
+        background: rgba(255, 193, 7, 0.8);
+      }
+
+      #stopBtn {
+        background: rgba(255, 0, 0, 0.8);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="controls">
+      <button id="pauseBtn" onclick="togglePause()">
+        <span id="pauseIcon">⏸️</span>
+        <span id="pauseLabel">Pause</span>
+      </button>
+      <button id="stopBtn" onclick="stopRecording()">
+        <span>⏹️</span>
+        Stop
+      </button>
+    </div>
+
+    <script>
+      // État initial : false (enregistrement en cours)
+      let isPaused = false;
+      function togglePause() {
+        isPaused = !isPaused;
+        updateUI();
+        window.electronAPI.togglePause();
+      }
+
+      function stopRecording() {
+        isPaused = false;
+        console.log("Stop recording clicked");
+        window.electronAPI
+          .stopRecording()
+          .then(() => console.log("Stop recording success"))
+          .catch((err) => console.error("Stop recording error:", err));
+      }
+      // Met à jour l'icône et le texte du bouton en fonction de l'état
+      function updateUI() {
+        const pauseIcon = document.getElementById("pauseIcon");
+        const pauseLabel = document.getElementById("pauseLabel");
+
+        if (isPaused) {
+          // Si en pause, on affiche l'icône "play" et "Reprendre"
+          pauseIcon.textContent = "▶️";
+          pauseLabel.textContent = "Reprendre";
+        } else {
+          // Sinon, on affiche l'icône "pause" et "Pause"
+          pauseIcon.textContent = "⏸️";
+          pauseLabel.textContent = "Pause";
+        }
+      }
+    </script>
+  </body>
+</html>
