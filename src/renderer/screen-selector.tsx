@@ -15,11 +15,9 @@ const ScreenSelector = ({ setSelectedWin }: { setSelectedWin: any }) => {
       try {
         // Get all window and screen sources
         const sources = await window.electronAPI.desktopCapturer({
-          types: ["window"],
+          types: ["window", "screen"],
           thumbnailSize: { width: 300, height: 200 },
         });
-
-        console.log("sources", sources);
 
         setSources(sources);
         setIsLoading(false);
@@ -66,17 +64,17 @@ const ScreenSelector = ({ setSelectedWin }: { setSelectedWin: any }) => {
             >
               <CardContent className="p-3">
                 <div className="relative">
-                 {/*  {source.thumbnail ? (
+                  {/*  {source.thumbnail ? (
                     <img
                       src={source.thumbnail.toDataURL()}
                       alt={source.name}
                       className="w-full h-32 object-cover rounded"
                     />
                   ) : ( */}
-                    <div className="w-full h-32 bg-gray-100 flex items-center justify-center rounded">
-                      <Monitor size={48} className="text-gray-400" />
-                    </div>
-                 {/*  )} */}
+                  <div className="w-full h-32 bg-gray-100 flex items-center justify-center rounded">
+                    <Monitor size={48} className="text-gray-400" />
+                  </div>
+                  {/*  )} */}
                   <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-2 rounded-b">
                     <p className="text-sm truncate">{source.name}</p>
                   </div>

@@ -2,6 +2,8 @@
   "name": "procedure-recorder-desktop",
   "version": "1.0.0",
   "private": true,
+  "description": "Proced.AI est un outil de création de procédures écrites qui utilise l'IA. ",
+  "author": "Serge KOKOUA",
   "main": "dist/main/index.js",
   "scripts": {
     "start": "electron .",
@@ -10,20 +12,49 @@
     "build": "npm run build:preload && npm run build:electron && tsc && vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "build:preload": "tsc -p tsconfig.preload.json",
-    "dev:electron": "cross-env NODE_ENV=development electron .",
-    "dev:all": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
+    "pack": "NODE_ENV=development VITE_API_URL=https://app.proced.ai && electron-builder --mac --dir",
+    "dist": "NODE_ENV=development VITE_API_URL=https://app.proced.ai && electron-builder --mac",
+    "postinstall": "electron-builder install-app-deps",
+    "dev:electron": "cross-env NODE_ENV=development VITE_API_URL=https://app.proced.ai electron .  --enable-logging",
+    "dev:all": "cross-env NODE_ENV=development VITE_API_URL=https://app.proced.ai concurrently \"npm run dev\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
     "preview": "vite preview"
   },
+  "build": {
+    "appId": "com.procedDesktop.procedAI",
+    "files": [
+      "dist/**/*",
+      "src/**/*"
+    ],
+    "productName": "Proced AI Desktop",
+    "mac": {
+      "identity": null,
+      "target": ["dmg"],
+      "category": "public.app-category.productivity",
+      "icon": "build/icons/mac/icon.icns"
+    },
+    "win": {
+      "icon": "build/icons/win/icon.ico"
+    },
+    "linux": {
+      "icon": "build/icons/png/icon.png"
+    }
+  },
   "dependencies": {
+    "@radix-ui/react-icons": "^1.3.2",
+    "@radix-ui/react-select": "^2.1.6",
+    "@radix-ui/react-slot": "^1.1.2",
+    "@types/node-localstorage": "^1.3.3",
     "@vitejs/plugin-react": "^4.2.0",
     "active-win": "^9.0.0",
     "autoprefixer": "^10.4.20",
-    "electron": "^28.0.0",
-    "electron-builder": "^25.1.8",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "lucide-react": "^0.471.1",
+    "node-localstorage": "^3.0.5",
     "postcss-loader": "^8.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "tailwind-merge": "^3.0.1",
     "tailwindcss": "^3.4.17",
     "uiohook-napi": "^1.5.4",
     "vite": "^5.0.0"
@@ -39,6 +70,9 @@
     "babel-loader": "^9.1.3",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
+    "electron": "^28.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-icon-builder": "^2.0.1",
     "typescript": "^5.5.3",
     "wait-on": "^8.0.2"
   },

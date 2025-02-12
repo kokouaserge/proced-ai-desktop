@@ -59,6 +59,19 @@ export const StepItem = ({
     }
   };
 
+  //const scaleFactor = window.devicePixelRatio || 1;
+
+  console.log("Screen size:", screen.width, screen.height);
+
+  useEffect(() => {
+    console.log(
+      "Image size:",
+      imageRef.current?.width,
+      imageRef.current?.height
+    );
+  }, [imageUrl]);
+
+
   return (
     <div
       draggable={!isEditing}
@@ -130,14 +143,14 @@ export const StepItem = ({
       </div>
       <div className="mt-2 mr-2">
         {imageUrl && (
-          <div className="space-y-2 overflow-hidden w-full rounded-lg shadow-lg border-2 bg-indigo-600">
+          <div className="space-y-2 overflow-hidden w-full rounded-lg shadow-lg border-2 bg-gray-500">
             {/* Image principale */}
             <div
-              className=" w-full overflow-hidden rounded-lg shadow-lg border-2 bg-indigo-600"
-              style={{
-                transform: "scale(2)",
+              className="relative w-full overflow-hidden rounded-lg shadow-lg border-2 bg-gray-500"
+               style={{
+                transform: "scale(1.8)",
                 transformOrigin: `${cursor.percentage.x}% ${cursor.percentage.y}%`, // Point d'origine du zoom
-              }}
+              }} 
             >
               <img
                 ref={imageRef}
@@ -151,11 +164,27 @@ export const StepItem = ({
                 <div
                   className="absolute w-4 h-4 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 opacity-50"
                   style={{
-                    left: `${cursor.percentage.x}%`,
-                    top: `${cursor.percentage.y}%`,
+                    left: `${
+                      imageRef
+                        ? (cursor.absolute.x / screen.height) *
+                          (imageRef?.current as any)?.height
+                        : cursor.absolute.x * 0.98
+                    }px`,
+                    top: `${imageRef
+                      ? (cursor.absolute.y / screen.height) *
+                        (imageRef?.current as any)?.height
+                      : cursor.absolute.y * 0.98}px`,
                   }}
                 />
               )}
+
+              {/* <div
+                  className="absolute w-4 h-4 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 opacity-50"
+                  style={{
+                    left: `${cursor.percentage.x}%`,
+                    top: `${cursor.percentage.y}%`,
+                  }}
+                /> */}
             </div>
           </div>
         )}

@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Pause, Eye, Trash2, Check, Play } from "lucide-react";
+/* import { Pause, Eye, Trash2, Check, Play } from "lucide-react"; */
 import type { Step } from "../types";
-import { StepsList } from "./step-list";
+/* import { StepsList } from "./step-list";
 import ScreenSelector from "./screen-selector";
+import { Tooltip } from "@kobalte/core"; */
+import { Logo } from "./ui/logo";
+import { TargetSelects } from "./target-selects";
+import { Camera, Settings } from "lucide-react";
+import { Button } from "./ui/button";
+import { CameraSelect } from "./camera-select";
+import { MicrophoneSelect } from "./microphone-select";
 
 const CLICK_THRESHOLD = 1000;
 
@@ -13,20 +20,44 @@ export function App() {
   const [hasPermissions, setHasPermissions] = useState(false);
   const [isWindows] = useState(navigator.platform.includes("Win"));
   const [isSelectedScreen, setIsSelectedScreen] = useState(false);
+  const [isAuthed, setIsAuthed] = useState(false);
 
   const lastClickRef = useRef<{ x: number; y: number; time: number } | null>(
     null
   );
 
   useEffect(() => {
+    console.log(window.electronAPI);
+  }, []);
+
+  useEffect(() => {
     // Vérifier les permissions au chargement
     checkPermissions();
 
-    // Ignorer les événements si en pause
-    if (isPaused) return;
+    console.log(window.electronAPI);
+
+    const checkAuth = async () => {
+      const auth = await window.electronAPI?.auth.check();
+      if (auth) {
+        setIsAuthed(true);
+      }
+    };
+    checkAuth();
+
+    // Écouter les événements d'authentification réussie
+    const unsubscribeAuth = window.electronAPI?.auth.onSuccess(() => {
+      setIsAuthed(true);
+    });
+
+    const unsubscribeRestart = window.electronAPI?.onRecordingRestarted(
+      (state: boolean | ((prevState: boolean) => boolean)) => {
+        console.log("Restart changé:", state);
+        setSteps([]);
+      }
+    );
 
     // Écouter les changements d'état d'enregistrement
-    const unsubscribeRecording = window.electronAPI.onRecordingStateChanged(
+    const unsubscribeRecording = window.electronAPI?.onRecordingStateChanged(
       (state: boolean | ((prevState: boolean) => boolean)) => {
         console.log("État enregistrement changé:", state);
         setIsRecording(state);
@@ -34,14 +65,17 @@ export function App() {
       }
     );
 
-    const subscribePause = window.electronAPI.onPauseStateChanged(
+    const subscribePause = window.electronAPI?.onPauseStateChanged(
       (state: boolean | ((prevState: boolean) => boolean)) => {
         console.log("État Pause changé:", state);
         setIsPaused(state);
       }
     );
 
-    const captureSubscribe = window.electronAPI.onScreenCapture(
+    // Ignorer les événements si en pause
+    if (isPaused) return;
+
+    const captureSubscribe = window.electronAPI?.onScreenCapture(
       async (event) => {
         console.log(event);
         const cursorPosition = {
@@ -92,7 +126,7 @@ export function App() {
     );
 
     // Écouter les erreurs de capture d'écran
-    const captureError = window.electronAPI.onScreenCaptureError(
+    const captureError = window.electronAPI?.onScreenCaptureError(
       // biome-ignore lint/suspicious/noExplicitAny: <explanation>
       (message: any) => {
         console.log(message);
@@ -102,15 +136,17 @@ export function App() {
     );
 
     return () => {
-      captureError();
-      captureSubscribe();
-      unsubscribeRecording();
-      subscribePause();
+      captureError?.();
+      captureSubscribe?.();
+      unsubscribeRecording?.();
+      subscribePause?.();
+      unsubscribeRestart?.();
+      unsubscribeAuth?.();
     };
   }, [isPaused]);
 
   const checkPermissions = async () => {
-    const permitted = await window.electronAPI.checkPermissions();
+    const permitted = await window.electronAPI?.checkPermissions();
     setHasPermissions(permitted);
   };
 
@@ -123,9 +159,8 @@ export function App() {
       console.error("Failed to request permissions:", error);
     }
   };
-  const startRecording = async (value = "") => {
-    if (!value) return setIsSelectedScreen(true);
-
+  const startRecording = async () => {
+    //  if (!value) return setIsSelectedScreen(true);
     try {
       if (!hasPermissions && !isWindows) {
         const message =
@@ -134,8 +169,8 @@ export function App() {
         console.log(message);
         return await requestPermissions();
       }
-      await window.electronAPI.startRecording();
-      setIsRecording(true);
+      window.electronAPI?.startRecording();
+      // setIsRecording(true);
       setIsSelectedScreen(false);
       setSteps([]);
     } catch (error) {
@@ -144,9 +179,9 @@ export function App() {
   };
 
   const stopRecording = () => {
-    setIsRecording(false);
+    //  setIsRecording(false);
     setIsPaused(false);
-    window.electronAPI.stopRecording();
+    window.electronAPI?.stopRecording();
   };
 
   const togglePause = () => {
@@ -154,109 +189,77 @@ export function App() {
   };
 
   return (
-    <div className="min-w-[320px] max-w-md w-auto h-screen bg-gray-50 flex flex-col fixed inset-0 overflow-hidden">
-      {/*  <SyncAuth> */}
-      <div className="overflow-y-auto flex-1">
-        {/* Header */}
-        <div className="flex-shrink-0">
-          <div className="space-y-2 mb-2">
-            <div className="flex justify-center">
-              <img
-                src="https://app.proced.ai/images/logo/logo.svg"
-                alt="logo"
-                className="w-auto h-auto"
-              />
-            </div>
+    <div className="flex justify-center flex-col p-[1rem] gap-[0.75rem] text-[0.875rem] font-[400] bg-[--gray-50] h-full text-[--text-primary]  mt-6">
+      <div className="flex items-center justify-between pb-[0.25rem]">
+        <div className="flex items-center space-x-1">
+          <div className="*:w-[92px] *:h-auto text-[--text-primary] ">
+            <Logo className="dark:block hidden" />
+            <Logo className="dark:hidden block" />
           </div>
+          <button
+            type="button"
+            onClick={async () => {
+              startRecording();
 
-          {/* Start Recording Button */}
-          <div className="space-y-2 p-4">
-            {!isRecording && !isSelectedScreen && (
-              <button
-                type="button"
-                onClick={() => setIsSelectedScreen(true)}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-4 rounded-lg flex items-center justify-center space-x-2 transition-colors"
-              >
-                <Check className="w-5 h-5" />
-                <span className="font-medium">Demarrer l'enregistrement</span>
-              </button>
-            )}
+              if (isRecording) stopRecording();
 
-            {!isRecording && isSelectedScreen && (
-              <div>
-                <ScreenSelector
-                  // biome-ignore lint/suspicious/noExplicitAny: <explanation>
-                  setSelectedWin={async (value: any) => {
-                    console.log("source", value);
-                    await Promise.all([
-                      window.electronAPI.selectedWindow(value.id),
-                      startRecording(value.id),
-                    ]);
-                  }}
-                />
-              </div>
-            )}
-          </div>
+              if (isSelectedScreen) togglePause();
+
+              if (steps) return;
+            }}
+            className={`text-[0.6rem] ${"bg-[--blue-400] text-white dark:text-white"} rounded-lg px-1.5 py-0.5`}
+          >
+            Pro
+          </button>
         </div>
+        <div className="flex items-center space-x-2">
+          <button
+            type="button"
+            onClick={async () => {
+              if (!isAuthed) return await window.electronAPI.auth.start();
+              // if (!isAuthed) return await window.electronAPI.auth.start();
 
-        {/* Steps List - Add padding bottom to prevent content being hidden behind control panel */}
-        <StepsList steps={steps} setSteps={setSteps} />
-
-        {/* Fixed Control Panel */}
-        {isRecording && (
-          <div className="fixed bottom-0 left-0 right-0 bg-gray-50 border-t border-gray-200 shadow-lg">
-            <div className="p-4 space-y-3">
-              <div className="flex space-x-3">
-                <button
-                  type="button"
-                  onClick={togglePause}
-                  className="flex-1 flex items-center justify-center space-x-2 px-4 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
-                >
-                  {isPaused ? (
-                    <>
-                      <Play className="w-4 h-4" />
-                      <span>Reprendre</span>
-                    </>
-                  ) : (
-                    <>
-                      <Pause className="w-4 h-4" />
-                      <span>Pause</span>
-                    </>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="flex items-center justify-center space-x-2 px-4 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
-                >
-                  <Eye className="w-4 h-4" />
-                  <span>Blur</span>
-                  <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">
-                    PRO
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => stopRecording()}
-                  className="flex items-center justify-center space-x-2 px-4 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Supprimer</span>
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => stopRecording()}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-4 rounded-lg flex items-center justify-center space-x-2 transition-colors"
-              >
-                <Check className="w-5 h-5" />
-                <span className="font-medium">Arreter l'enregistrement</span>
-              </button>
-            </div>
-          </div>
-        )}
+              //  await window.electronAPI.auth.logout();
+            }}
+          >
+            <Settings className="w-[1.25rem] h-[1.25rem] text-gray-400 hover:text-gray-500" />
+          </button>
+        </div>
       </div>
-      {/* </SyncAuth> */}
+
+      <TargetSelects
+        handleChangeTarget={(value) => {
+          window.electronAPI.selectedWindow(value.id),
+            setIsSelectedScreen(true);
+        }}
+      />
+
+      <CameraSelect permissionGranted={false} value="" />
+
+      <MicrophoneSelect permissionGranted={false} value="" />
+
+      <div className="w-full flex items-center space-x-1">
+        <Button
+          variant={isRecording ? "destructive" : "primary"}
+          size="md"
+          onClick={() => {
+            if (isRecording) return stopRecording();
+            startRecording();
+          }}
+          className="flex-grow  "
+          disabled={!isSelectedScreen}
+        >
+          {isRecording ? "Stop Recording" : "Start Recording"}
+        </Button>
+        <Button
+          disabled={isRecording}
+          variant="primary"
+          size="md"
+          onClick={() => console.log("log")}
+        >
+          <Camera className="w-[1rem] h-[1rem]" />
+        </Button>
+      </div>
     </div>
   );
 }

@@ -1,36 +1,68 @@
-const {
+/* const {
   app,
   BrowserWindow,
   ipcMain,
-  screen: screenA,
+  screen: screen,
   desktopCapturer,
   systemPreferences,
-} = require("electron");
-const path = require("node:path");
-const { fileURLToPath } = require("node:url");
-const { uIOhook, UiohookKey } = require("uiohook-napi");
-const os = require("node:os");
-const { exec } = require("node:child_process");
+  nativeImage,
+  shell,
+} = require("electron"); */
+
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  desktopCapturer,
+  systemPreferences,
+  nativeImage,
+  screen,
+} from "electron";
+import path from "node:path";
+import { uIOhook } from "uiohook-napi";
+import { exec } from "node:child_process";
+import { store } from "./store";
+
+const NAME_STORE_AUTH = "proced_ai_auth";
 
 let isRecording = false;
 
 // biome-ignore lint/suspicious/noExplicitAny: <explanation>
 let mainWindow: any;
+
 // biome-ignore lint/suspicious/noExplicitAny: <explanation>
-let overlayWindow: any = null;
+let buttonInProgressWindow: any = null;
+
 // biome-ignore lint/suspicious/noExplicitAny: <explanation>
-let controlsWindow: any = null;
+let editorWindow: any = null;
+
+let authWindow: any = null;
+
 let lastClickTime = 0;
 
 let selectedPid: string | null = null;
 
 const CLICK_THRESHOLD = 500;
 
-// Variable pour stocker la position des contrôles
-// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-let controlsPosition: any = null;
-
 let isPaused = false;
+
+let captureBuffer: any = null;
+//let lastCaptureTime = 0;
+let updateBufferInterval: any = null;
+const CAPTURE_INTERVAL = 100; // ms
+//const CAPTURE_BUFFER_SIZE = 5;
+
+function broadcastToAllWindows(channel: string, ...args: any[]) {
+  const windows = [
+    mainWindow,
+    editorWindow,
+    buttonInProgressWindow,
+    authWindow,
+  ].filter((window) => window !== null);
+  windows.forEach((window) => {
+    window?.webContents?.send(channel, ...args);
+  });
+}
 
 // Fonction pour obtenir le PID selon le système d'exploitation
 function getWindowPid(windowTitle: string) {
@@ -179,7 +211,9 @@ async function checkScreenCapturePermission(): Promise<boolean> {
     }
 
     // Demander la permission
-    const hasPermission = await systemPreferences.askForMediaAccess("screen");
+    const hasPermission = await systemPreferences.askForMediaAccess(
+      "screen" as any
+    );
     return hasPermission;
   } catch (error) {
     console.error("Error checking screen capture permission:", error);
@@ -203,21 +237,34 @@ function requestScreenCaptureAccess() {
 }
 
 function createWindow() {
+  const MAIN_WINDOW_SIZE = { width: 300, height: 360 };
   mainWindow = new BrowserWindow({
-    width: 750,
-    height: 600,
+    width: MAIN_WINDOW_SIZE.width,
+    height: MAIN_WINDOW_SIZE.height,
     icon: path.join(__dirname, "../assets/icon-128.png"),
+    titleBarStyle: "hidden",
+    // expose window controlls in Windows/Linux
+    ...(process.platform !== "darwin" ? { titleBarOverlay: true } : {}),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: true,
       webSecurity: false,
       preload: path.join(__dirname, "../preload/index.js"),
-      enableRemoteModule: true,
+      // enableRemoteModule: true,
     },
   });
 
+  mainWindow.setOverlayIcon(
+    nativeImage.createFromPath("../assets/icon-128.png"),
+    "Description for overlay"
+  );
+
+  mainWindow.on("resize", () => {
+    mainWindow.setSize(MAIN_WINDOW_SIZE.width, MAIN_WINDOW_SIZE.height);
+  });
+
   // Ouvrir les outils de développement
-  mainWindow.webContents.openDevTools();
+  // mainWindow.webContents.openDevTools();
 
   // En développement, charge l'URL de dev de Vite
   if (process.env.NODE_ENV === "development") {
@@ -233,13 +280,9 @@ function createWindow() {
     });
   }
 
-  mainWindow.webContents.on(
-    "did-fail-load",
-    // biome-ignore lint/suspicious/noExplicitAny: <explanation>
-    (event: any, errorCode: any, errorDescription: any) => {
-      console.log(event);
-      console.error("Failed to load:", errorCode, errorDescription);
-    }
+  mainWindow.setOverlayIcon(
+    nativeImage.createFromPath("../assets/icon-128.png"),
+    "Description for overlay"
   );
 
   // Pour Windows : gérer la notification système pour l'enregistrement d'écran
@@ -250,91 +293,218 @@ function createWindow() {
   });
 }
 
-function createOverlayWindow() {
-  const primaryDisplay = screenA.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.bounds;
+function createWindowInProgressButtons() {
+  let width = 180 + 32; // Same as `let mut width = 180.0; width += 32.0;`
+  let height = 40;
 
-  // Fenêtre transparente qui couvre tout l'écran
-  overlayWindow = new BrowserWindow({
-    width: width,
-    height: height,
-    x: 0,
-    y: 0,
-    transparent: true,
-    frame: false,
-    alwaysOnTop: true,
-    focusable: false,
-    hasShadow: false,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, "../preload/overlay-preload.js"),
-    },
-    skipTaskbar: true,
-    titleBarStyle: "hidden",
-  });
-
-  // Rendre la fenêtre transparente aux clics
-  overlayWindow.setIgnoreMouseEvents(true, { forward: true });
-
-  // Charger une page HTML transparente
-  if (process.env.NODE_ENV === "development") {
-    overlayWindow.loadFile(path.join(__dirname, "../../src/overlay.html"));
-  } else {
-    overlayWindow.loadFile(path.join(__dirname, "./overlay.html"));
+  if (mainWindow) {
+    mainWindow.minimize(); // Réduire la première fenêtre
   }
-}
 
-function createControlsWindow() {
-  const primaryDisplay = screenA.getPrimaryDisplay();
-  const { width } = primaryDisplay.bounds;
+  // Get the primary screen's dimensions and scale factor
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } =
+    primaryDisplay.workAreaSize; // Pas de "scaleFactor" ici
+  // const scaleFactor = primaryDisplay.scaleFactor;
 
-  controlsWindow = new BrowserWindow({
-    width: 200, // Largeur fixe pour les contrôles
-    height: 100, // Hauteur fixe pour les contrôles
-    x: width - 220, // Positionné en haut à droite
-    y: 20,
-    transparent: true,
-    frame: false,
+  // Positionnement en bas au centre
+  const xPos = (screenWidth - width) / 2;
+  const yPos = screenHeight - height; // Collé en bas
+
+  // Create the Electron window
+  buttonInProgressWindow = new BrowserWindow({
+    width,
+    height,
+    resizable: true,
+    fullscreen: false,
     alwaysOnTop: true,
-    focusable: true,
-    hasShadow: false,
+    transparent: true,
+    frame: false, // Hide window borders (if needed)
+    show: true,
+    movable: true,
+    skipTaskbar: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, "../preload/index.js"),
+      // enableRemoteModule: true,
     },
-    skipTaskbar: true,
   });
 
-  // Charger uniquement les contrôles
+  buttonInProgressWindow.setBounds({
+    width,
+    height,
+    x: Math.round(xPos),
+    y: Math.round(yPos),
+  });
+
+  // En production, charge le fichier HTML buildé
+
   if (process.env.NODE_ENV === "development") {
-    controlsWindow.loadFile(path.join(__dirname, "../../src/controls.html"));
+    buttonInProgressWindow.loadURL("http://localhost:5173/inprogress"); // Change the URL if needed
   } else {
-    controlsWindow.loadFile(path.join(__dirname, "./controls.html"));
+    buttonInProgressWindow.loadFile(
+      path.resolve(__dirname, "../renderer/inprogress.html")
+    );
+  }
+
+  buttonInProgressWindow.on("closed", () => {
+    buttonInProgressWindow = null;
+  });
+}
+
+function createEditorWindow() {
+  const MAIN_WINDOW_SIZE = { width: 900, height: 800 };
+  editorWindow = new BrowserWindow({
+    width: MAIN_WINDOW_SIZE.width,
+    height: MAIN_WINDOW_SIZE.height,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: true,
+      webSecurity: false,
+      preload: path.join(__dirname, "../preload/index.js"),
+      //  enableRemoteModule: true,
+    },
+  });
+
+  editorWindow.minimize();
+
+  editorWindow.on("resize", () => {
+    editorWindow.setSize(MAIN_WINDOW_SIZE.width, MAIN_WINDOW_SIZE.height);
+  });
+
+  // En développement, charge l'URL de dev de Vite
+  if (process.env.NODE_ENV === "development") {
+    editorWindow.loadURL("http://localhost:5173/editor");
+    console.log("Loading development URL");
+  } else {
+    // En production, charge le fichier HTML buildé
+    const htmlPath = path.resolve(__dirname, "../renderer/editor.html");
+    console.log("Loading production path:", htmlPath);
+    // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+    editorWindow.loadFile(htmlPath).catch((err: any) => {
+      console.error("Error loading file:", err);
+    });
+  }
+
+  editorWindow.on("closed", () => {
+    editorWindow = null;
+  });
+}
+
+// Fonction pour maintenir un buffer de captures récentes
+async function updateCaptureBuffer() {
+  if (!isRecording) return;
+
+  try {
+    const screenshot = await performCapture();
+    if (screenshot) {
+      captureBuffer = {
+        screenshot,
+        timestamp: Date.now(),
+      };
+    }
+  } catch (error) {
+    console.error("Error updating capture buffer:", error);
   }
 }
 
-async function handleClick(x: number, y: number) {
+// Capture d'écran optimisée
+async function performCapture() {
+  const displays = screen.getAllDisplays();
+  const primaryDisplay = displays[0];
+  const { width, height } = primaryDisplay.bounds;
+
+  const sources = await desktopCapturer.getSources({
+    types: ["window", "screen"],
+    thumbnailSize: {
+      width,
+      height,
+    },
+  });
+
+  return sources[0].thumbnail.toDataURL();
+}
+
+// Gérer le clic avec le buffer
+async function handleClick(event: MouseEvent) {
   try {
-    const screenshot = await captureScreen();
-    if (!screenshot) return; // Ajout de cette vérification
-    // Vérifier que screenshot est une chaîne ou le convertir si nécessaire
-    const screenshotData =
-      typeof screenshot === "string" ? screenshot : screenshot.toString();
-    mainWindow?.webContents.send("click-captured", {
+    // Obtenir les infos de l'écran
+
+    const x = event.x;
+    const y = event.y;
+    const displays = screen.getAllDisplays();
+    const primaryDisplay = displays[0];
+    /*  
+    const { scaleFactor } = primaryDisplay;
+
+    // Obtenir la position réelle en tenant compte du scaling
+    const x = Math.round(event.x / scaleFactor);
+    const y = Math.round(event.y / scaleFactor); */
+
+    /*     // Si une fenêtre spécifique est sélectionnée, ajuster les coordonnées
+    if (selectedPid?.startsWith("window:")) {
+      const activeWindow = BrowserWindow.getAllWindows().find(
+        (win) => win.getMediaSourceId() === selectedPid
+      );
+
+      if (activeWindow) {
+        const bounds = activeWindow.getBounds();
+        // Ajuster les coordonnées relatives à la fenêtre
+        const relativeX = x - bounds.x;
+        const relativeY = y - bounds.y;
+
+        broadcastToAllWindows("click-captured", {
+          x: relativeX,
+          y: relativeY,
+          absoluteX: x,
+          absoluteY: y,
+          windowBounds: bounds,
+          screenshot: captureBuffer?.screenshot,
+          timestamp: Date.now(),
+        });
+        return;
+      }
+    } */
+
+    const clickedElement = event.target as HTMLElement;
+
+    // Si l'élément possède un label ou un texte à récupérer
+    const label = clickedElement.innerText || clickedElement.textContent;
+    // Pour les captures d'écran entier
+    broadcastToAllWindows("click-captured", {
       x,
       y,
-      screenshot: screenshotData,
+      absoluteX: x,
+      absoluteY: y,
+      displayBounds: primaryDisplay.bounds,
+      screenshot: captureBuffer?.screenshot,
       timestamp: Date.now(),
+      description: label,
     });
   } catch (error) {
     console.error("Error handling click:", error);
-    mainWindow?.webContents.send("screen-capture-error", error);
+    broadcastToAllWindows("screen-capture-error", error);
   }
 }
 
-async function captureScreen() {
+// Démarrer la mise à jour du buffer quand l'enregistrement commence
+function startRecording() {
+  isRecording = true;
+  updateBufferInterval = setInterval(updateCaptureBuffer, CAPTURE_INTERVAL);
+}
+
+// Arrêter la mise à jour du buffer
+function stopRecording() {
+  isRecording = false;
+  if (updateBufferInterval) {
+    clearInterval(updateBufferInterval);
+    updateBufferInterval = null;
+  }
+  captureBuffer = null;
+}
+
+/* async function captureScreen() {
   try {
     if (!isRecording) return;
     const hasPermission = await hasScreenCapturePermission();
@@ -347,16 +517,14 @@ async function captureScreen() {
       throw new Error(errorMessage);
     }
 
-    //const { width, height } = screenA;
-
-    const displays = screenA.getAllDisplays();
+    const displays = screen.getAllDisplays();
     const primaryDisplay = displays[0];
     const { width, height } = primaryDisplay.bounds;
 
     await new Promise((resolve) => setTimeout(resolve, 200));
 
     const sources = await desktopCapturer.getSources({
-      types: ["window"],
+      types: ["window", "screen"],
       thumbnailSize: {
         width,
         height,
@@ -378,9 +546,11 @@ async function captureScreen() {
     }
     throw error;
   }
-}
+} */
 
-async function getActiveSourceId(): Promise<string | null> {
+async function getActiveSourceId(
+  selectedPid: string | null
+): Promise<string | null> {
   try {
     const activePid = await getActivePid();
     if (!activePid) {
@@ -389,33 +559,39 @@ async function getActiveSourceId(): Promise<string | null> {
     }
 
     const sources = await desktopCapturer.getSources({
-      types: ["window"],
+      types: ["window", "screen"],
       thumbnailSize: { width: 1, height: 1 },
     });
 
-    console.log(
-      "Sources disponibles:",
-      sources.map((s: { id: number; name: string }) => ({
-        id: s.id,
-        name: s.name,
-      }))
+    // Vérifier si selectedPid est un screen ou une window
+    const selectedSource = sources.find(
+      (source: { id: string | null }) => source.id === selectedPid
     );
-    console.log("PID actif:", activePid);
+    if (!selectedSource) return null;
 
-    for (const source of sources) {
-      if (!source.id.startsWith("window:")) continue;
+    // Si selectedPid est un screen
+    if (selectedSource.id.startsWith("screen:")) {
+      return selectedPid; // Retourner directement le screen sélectionné
+    }
 
-      const windowPid = await getWindowPid(source.name);
-      console.log(
-        `Comparaison - Source: ${source.name}, PID: ${windowPid} vs Active: ${activePid}`
-      );
+    // Si selectedPid est une window, chercher la window active
+    if (selectedSource.id.startsWith("window:")) {
+      for (const source of sources) {
+        if (!source.id.startsWith("window:")) continue;
 
-      if (windowPid && Number(windowPid) === Number(activePid)) {
-        return source.id;
+        const windowPid = await getWindowPid(source.name);
+        console.log(
+          `Comparaison - Source: ${source.name}, PID: ${windowPid} vs Active: ${activePid}`
+        );
+
+        if (windowPid && Number(windowPid) === Number(activePid)) {
+          return source.id;
+        }
       }
     }
 
-    return sources[0]?.id || null; // Fallback sur la première source si pas de correspondance
+    // Si aucune correspondance trouvée, retourner le selectedPid
+    return selectedPid;
   } catch (error) {
     console.error("Erreur getActiveSourceId:", error);
     return null;
@@ -425,21 +601,26 @@ async function getActiveSourceId(): Promise<string | null> {
 function updateRecordingState(newState: boolean) {
   isRecording = newState;
   // Notifier tous les listeners du changement
-  mainWindow?.webContents.send("recording-state-changed", isRecording);
+  broadcastToAllWindows("recording-state-changed", isRecording);
 }
 
 // Attendre que l'app soit prête
 app.whenReady().then(async () => {
   await createWindow();
+
   const hasPermission = await hasScreenCapturePermission();
   console.log("Initial screen capture permission:", hasPermission);
 
   // biome-ignore lint/suspicious/noExplicitAny: <explanation>
   uIOhook.on("mousedown", async (event: any) => {
-    const activeWindow = await getActiveSourceId();
+    const activeWindow = await getActiveSourceId(selectedPid);
 
     if (!activeWindow) {
-      console.log("⛔ Clic ignoré - pas de fenêtre active");
+      console.log(
+        "⛔ Clic ignoré - pas de fenêtre active",
+        activeWindow,
+        selectedPid
+      );
       return;
     }
     if (activeWindow !== selectedPid) {
@@ -457,7 +638,7 @@ app.whenReady().then(async () => {
     lastClickTime = now;
     if (isRecording && mainWindow) {
       console.log("✅ Clic capturé et envoyé", { x: event.x, y: event.y });
-      await handleClick(event.x, event.y);
+      await handleClick(event);
     }
   });
 
@@ -465,13 +646,15 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  if (overlayWindow) {
-    overlayWindow.close();
-    overlayWindow = null;
+  stopRecording();
+  if (buttonInProgressWindow) {
+    buttonInProgressWindow.close();
+    buttonInProgressWindow = null;
   }
-  if (controlsWindow) {
-    controlsWindow.close();
-    controlsWindow = null;
+
+  if (editorWindow) {
+    editorWindow.close();
+    editorWindow = null;
   }
   if (process.platform !== "darwin") {
     app.quit();
@@ -485,30 +668,58 @@ app.on("activate", () => {
 });
 
 // Gérer le début de l'enregistrement
-ipcMain.handle("start-recording", async () => {
+/* ipcMain.handle("start-recording", async () => {
   updateRecordingState(true);
-  if (!overlayWindow) {
-    createOverlayWindow();
-  }
-  if (!controlsWindow) {
-    createControlsWindow();
-  }
+
+  createWindowInProgressButtons();
+  createEditorWindow();
 
   return true;
+}); */
+
+ipcMain.handle("start-recording", async () => {
+  try {
+    // Vérifier les permissions
+    const hasPermission = await hasScreenCapturePermission();
+    if (!hasPermission) {
+      throw new Error("Screen recording permission not granted");
+    }
+
+    updateRecordingState(true);
+
+    createWindowInProgressButtons();
+    createEditorWindow();
+
+    // Initialiser le buffer avec une première capture
+    const initialCapture = await performCapture();
+    if (initialCapture) {
+      captureBuffer = {
+        screenshot: initialCapture,
+        timestamp: Date.now(),
+      };
+    }
+
+    // Démarrer l'enregistrement
+    startRecording();
+    return true;
+  } catch (error) {
+    console.error("Error starting recording:", error);
+    return false;
+  }
 });
 
 // Gérer l'arrêt de l'enregistrement
 ipcMain.handle("stop-recording", () => {
   updateRecordingState(false);
   isPaused = false;
-  if (overlayWindow) {
-    overlayWindow.close();
-    overlayWindow = null;
+
+  if (buttonInProgressWindow) {
+    buttonInProgressWindow.close();
+    buttonInProgressWindow = null;
   }
-  if (controlsWindow) {
-    controlsWindow.close();
-    controlsWindow = null;
-  }
+  if (mainWindow) mainWindow.restore();
+  if (editorWindow) editorWindow.restore();
+
   return true;
 });
 
@@ -574,18 +785,98 @@ ipcMain.handle("check-permissions", async () => {
   return await hasScreenCapturePermission();
 });
 
-// Gérer la position des contrôles
-// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-ipcMain.on("set-controls-position", (_: any, position: any) => {
-  console.log("updated", position);
-  controlsPosition = position;
-});
-
 // biome-ignore lint/suspicious/noExplicitAny: <explanation>
 ipcMain.on("toggle-pause", (_: any) => {
   isPaused = !isPaused;
   // Notifier tous les listeners du changement
-  mainWindow?.webContents.send("toggle-paused", isPaused);
+  // mainWindow?.webContents.send("toggle-paused", isPaused);
+  broadcastToAllWindows("toggle-paused", isPaused);
+});
+
+// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+ipcMain.on("restart-recording", (_: any) => {
+  // Notifier tous les listeners du changement
+  // mainWindow?.webContents.send("restarted-recording", isPaused);
+  broadcastToAllWindows("restarted-recording", isPaused);
+});
+
+async function handleAuthCallback() {
+  const cookies = await authWindow.webContents.session.cookies.get({});
+
+  // Chercher le cookie next-auth.session-token
+  const sessionCookie = cookies.find(
+    (cookie: { name: string }) =>
+      cookie.name === "next-auth.session-token" ||
+      cookie.name === "__Secure-next-auth.session-token"
+  );
+
+  if (sessionCookie) {
+    console.log("Session cookie found:", sessionCookie);
+
+    // Sauvegarder le token
+    const authData = {
+      token: sessionCookie.value,
+      expires: new Date(sessionCookie.expirationDate! * 1000).getTime(),
+    };
+
+    console.log(authData);
+    store.setItem(NAME_STORE_AUTH, authData);
+    authWindow?.close();
+  }
+}
+
+ipcMain.handle("auth:start", async () => {
+  try {
+    const AUTH_WINDOW_SIZE = { width: 1000, height: 800 };
+    authWindow = new BrowserWindow({
+      ...AUTH_WINDOW_SIZE,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+
+    authWindow?.webContents.on("will-navigate", (_: any, url: string) => {
+      console.log("Navigation to:", url); // Pour debug
+      handleAuthCallback();
+    });
+
+    authWindow?.webContents.on(
+      "did-navigate-in-page",
+      async (_: any, url: string) => {
+        console.log("In-page navigation to:", url); // Pour debug
+        handleAuthCallback();
+      }
+    );
+
+    authWindow?.webContents.on("did-finish-load", () => {
+      const currentURL = authWindow?.webContents.getURL();
+      console.log("Page loaded:", currentURL); // Pour debug
+      handleAuthCallback();
+    });
+
+    await authWindow.loadURL(`${process.env.VITE_API_URL}/auth/signin`);
+
+    authWindow.webContents.openDevTools();
+
+    authWindow.on("closed", () => {
+      authWindow = null;
+    });
+
+    return true;
+  } catch (error) {
+    console.error("Auth start error:", error);
+    throw error;
+  }
+});
+
+ipcMain.handle("auth:check", () => {
+  return store.getItem(NAME_STORE_AUTH);
+});
+
+ipcMain.handle("auth:logout", () => {
+  store.removeItem(NAME_STORE_AUTH);
+  return true;
 });
 
 // IPC handler pour la capture d'écran

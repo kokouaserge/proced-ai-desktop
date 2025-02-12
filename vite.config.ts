@@ -9,19 +9,19 @@ export default defineConfig({
     exclude: ["lucide-react"],
   },
   build: {
-    outDir: 'dist/renderer',
+    outDir: "dist/renderer",
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: resolve(__dirname, 'index.html'),
-        overlay: resolve(__dirname, 'src/overlay.html'),
-        controls:resolve(__dirname, 'src/controls.html'),
+        main: resolve(__dirname, "index.html"),
+        inprogress: resolve(__dirname, "inprogress.html"),
+        editor: resolve(__dirname, "editor.html")
       },
       output: {
-        entryFileNames: '[name].js',
-        chunkFileNames: '[name].js',
-        assetFileNames: '[name][extname]'
-      }
-    }
+        entryFileNames: "[name].js",
+        chunkFileNames: "[name].js",
+        assetFileNames: "[name][extname]",
+      },
+    },
   },
 });

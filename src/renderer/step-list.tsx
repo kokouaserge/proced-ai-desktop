@@ -115,6 +115,7 @@ export function StepsList({ steps, setSteps }: any) {
             onDelete={handleDelete}
             onUpdateText={handleUpdateText}
             index={index}
+            
           />
         </div>
       ))}

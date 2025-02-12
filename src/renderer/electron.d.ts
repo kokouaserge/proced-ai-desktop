@@ -1,3 +1,15 @@
+interface Auth {
+  token: string;
+  user_id: string;
+  expires: number;
+  intercom_hash?: string;
+  plan?: {
+    upgraded: boolean;
+    last_checked: number;
+    manual: boolean;
+  };
+}
+
 export interface ElectronAPI {
   captureScreen: (cursorPosition: { x: number; y: number }) => Promise<string>;
   // biome-ignore lint/suspicious/noExplicitAny: <explanation>
@@ -11,6 +23,8 @@ export interface ElectronAPI {
   ) => () => void;
   startRecording: () => void;
   stopRecording: () => void;
+  togglePause: () => void;
+  restartRecording: () => void;
   selectedWindow: (pid: string) => void;
   // biome-ignore lint/suspicious/noExplicitAny: <explanation>
   getOpenWindows: () => Promise<any>;
@@ -18,8 +32,30 @@ export interface ElectronAPI {
   desktopCapturer: (opts: any) => Promise<any>;
   // biome-ignore lint/suspicious/noExplicitAny: <explanation>
   onRecordingStateChanged: (opts: any) => any;
+
+  // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+  onRecordingRestarted: (opts: any) => any;
   // biome-ignore lint/suspicious/noExplicitAny: <explanation>
   onPauseStateChanged: (opts: any) => any;
+
+  auth: {
+    // Démarrer le processus d'authentification
+    start: () => Promise<boolean>;
+
+    // Vérifier l'état de l'authentification
+    check: () => Promise<Auth | null>;
+
+    // Se déconnecter
+    logout: () => Promise<boolean>;
+
+    // Rafraîchir le token
+    refresh: () => Promise<boolean>;
+
+    // Écouter les événements d'authentification
+    onSuccess: (callback: (auth: Auth) => void) => () => void;
+    onError: (callback: (error: Error) => void) => () => void;
+    onLogout: (callback: () => void) => () => void;
+  };
 }
 
 declare global {

@@ -1,5 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
-const { screen: electronScreen } = require("electron"); // Renommé pour éviter le conflit
+import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("electronAPI", {
   captureScreen: async (cursorPosition: { x: number; y: number }) => {
@@ -50,6 +49,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   startRecording: () => ipcRenderer.invoke("start-recording"),
   stopRecording: () => ipcRenderer.invoke("stop-recording"),
+  restartRecording: () => ipcRenderer.invoke("restart-recording"),
   selectedWindow: (pid: string) => ipcRenderer.invoke("select-window", pid),
   // biome-ignore lint/suspicious/noExplicitAny: <explanation>
   desktopCapturer: async (opts: any) => ipcRenderer.invoke("GET_SOURCES", opts),
@@ -66,6 +66,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+  onRecordingRestarted: (callback: (arg0: any) => any) => {
+    // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+    ipcRenderer.on("restarted-recording", (_: any, message: any) =>
+      callback(message)
+    );
+    return () => {
+      ipcRenderer.removeListener("restarted-recording", callback);
+    };
+  },
+
+  // biome-ignore lint/suspicious/noExplicitAny: <explanation>
   onPauseStateChanged: (callback: (arg0: any) => any) => {
     // biome-ignore lint/suspicious/noExplicitAny: <explanation>
     ipcRenderer.on("toggle-paused", (_: any, message: any) =>
@@ -74,5 +85,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => {
       ipcRenderer.removeListener("toggle-paused", callback);
     };
+  },
+
+  auth: {
+    start: () => ipcRenderer.invoke("auth:start"),
+    check: () => ipcRenderer.invoke("auth:check"),
+    logout: () => ipcRenderer.invoke("auth:logout"),
+    onSuccess: (callback: (arg0: any) => any) => {
+      const subscription = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("auth:success", subscription);
+      return () => {
+        ipcRenderer.removeListener("auth:success", subscription);
+      };
+    },
   },
 });
