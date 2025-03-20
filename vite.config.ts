@@ -15,7 +15,8 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "index.html"),
         inprogress: resolve(__dirname, "inprogress.html"),
-        editor: resolve(__dirname, "editor.html")
+        editor: resolve(__dirname, "editor.html"),
+        setup: resolve(__dirname, "setup.html")
       },
       output: {
         entryFileNames: "[name].js",

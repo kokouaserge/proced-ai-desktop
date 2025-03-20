@@ -1,14 +1,3 @@
-/* const {
-  app,
-  BrowserWindow,
-  ipcMain,
-  screen: screen,
-  desktopCapturer,
-  systemPreferences,
-  nativeImage,
-  shell,
-} = require("electron"); */
-
 import {
   app,
   BrowserWindow,
@@ -17,8 +6,11 @@ import {
   systemPreferences,
   nativeImage,
   screen,
+  shell,
+  dialog,
 } from "electron";
 import path from "node:path";
+import fs from "node:fs";
 import { uIOhook } from "uiohook-napi";
 import { exec } from "node:child_process";
 import { store } from "./store";
@@ -28,15 +20,16 @@ const NAME_STORE_AUTH = "proced_ai_auth";
 let isRecording = false;
 
 // biome-ignore lint/suspicious/noExplicitAny: <explanation>
-let mainWindow: any;
+let mainWindow: BrowserWindow;
+const SETUP_COMPLETED_KEY = "setup_completed";
+const APP_VERSION_KEY = "app_version";
 
-// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-let buttonInProgressWindow: any = null;
+//Windows
 
-// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-let editorWindow: any = null;
-
-let authWindow: any = null;
+let setupWindow: BrowserWindow | null = null;
+let buttonInProgressWindow: BrowserWindow | null = null;
+let editorWindow: BrowserWindow | null = null;
+let authWindow: BrowserWindow | null = null;
 
 let lastClickTime = 0;
 
@@ -45,22 +38,99 @@ let selectedPid: string | null = null;
 const CLICK_THRESHOLD = 500;
 
 let isPaused = false;
-
+// biome-ignore lint/suspicious/noExplicitAny: <explanation>
 let captureBuffer: any = null;
 //let lastCaptureTime = 0;
+// biome-ignore lint/suspicious/noExplicitAny: <explanation>
 let updateBufferInterval: any = null;
 const CAPTURE_INTERVAL = 100; // ms
-//const CAPTURE_BUFFER_SIZE = 5;
 
+const SETUP_COMPLETE_FLAG = "--setup-complete";
+
+// Vérifier si l'application démarre avec le flag d'installation terminée
+const isSetupCompleteFlag = process.argv.includes(SETUP_COMPLETE_FLAG);
+
+function isSetupCompleted(): boolean {
+  const setupCompleted = store.getItem(SETUP_COMPLETED_KEY);
+  const currentVersion = app.getVersion();
+  const storedVersion = store.getItem(APP_VERSION_KEY);
+
+  // Si l'installation n'a jamais été faite ou si la version a changé
+  return setupCompleted === true && storedVersion === currentVersion;
+}
+
+function ensureAppDirectories() {
+  const userDataPath = app.getPath("userData");
+  const requiredDirs = [
+    path.join(userDataPath, "captures"),
+    path.join(userDataPath, "recordings"),
+    path.join(userDataPath, "logs"),
+  ];
+
+  for (const dir of requiredDirs) {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  }
+}
+
+/**
+ * Ouvre l'URL spécifiée dans le navigateur par défaut du système.
+ *
+ * @param url L'URL à ouvrir dans le navigateur
+ * @returns Une promesse résolue avec true si l'ouverture a réussi, ou rejetée avec une erreur
+ */
+export async function openInDefaultBrowser(url: string): Promise<boolean> {
+  try {
+    // Méthode recommandée: utiliser shell.openExternal d'Electron
+    await shell.openExternal(url);
+    return true;
+  } catch (error) {
+    console.error("Erreur lors de l'ouverture du navigateur:", error);
+    throw error;
+  }
+}
+
+/* function resetSetup() {
+  store.removeItem(SETUP_COMPLETED_KEY);
+  store.removeItem(APP_VERSION_KEY);
+  store.removeItem(NAME_STORE_AUTH);
+} */
+
+// biome-ignore lint/suspicious/noExplicitAny: <explanation>
 function broadcastToAllWindows(channel: string, ...args: any[]) {
-  const windows = [
-    mainWindow,
-    editorWindow,
-    buttonInProgressWindow,
-    authWindow,
-  ].filter((window) => window !== null);
-  windows.forEach((window) => {
-    window?.webContents?.send(channel, ...args);
+  return new Promise<void>((resolve, reject) => {
+    try {
+      const windows = [
+        mainWindow,
+        editorWindow,
+        buttonInProgressWindow,
+        authWindow,
+      ].filter((window) => window !== null && !window.isDestroyed());
+
+      // Vérifier qu'il y a des fenêtres à notifier
+      if (windows.length === 0) {
+        console.warn("Aucune fenêtre disponible pour diffuser le message");
+        return resolve();
+      }
+
+      // biome-ignore lint/complexity/noForEach: <explanation>
+      windows.forEach((window) => {
+        try {
+          if (window?.webContents && !window.webContents.isDestroyed()) {
+            window.webContents.send(channel, ...args);
+          }
+        } catch (err) {
+          console.warn(`Erreur lors de l'envoi à une fenêtre:`, err);
+          // Continuer avec les autres fenêtres même si une échoue
+        }
+      });
+
+      resolve();
+    } catch (error) {
+      console.error("Erreur dans broadcastToAllWindows:", error);
+      reject(error);
+    }
   });
 }
 
@@ -212,6 +282,7 @@ async function checkScreenCapturePermission(): Promise<boolean> {
 
     // Demander la permission
     const hasPermission = await systemPreferences.askForMediaAccess(
+      // biome-ignore lint/suspicious/noExplicitAny: <explanation>
       "screen" as any
     );
     return hasPermission;
@@ -263,9 +334,6 @@ function createWindow() {
     mainWindow.setSize(MAIN_WINDOW_SIZE.width, MAIN_WINDOW_SIZE.height);
   });
 
-  // Ouvrir les outils de développement
-  // mainWindow.webContents.openDevTools();
-
   // En développement, charge l'URL de dev de Vite
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:5173");
@@ -294,8 +362,8 @@ function createWindow() {
 }
 
 function createWindowInProgressButtons() {
-  let width = 180 + 32; // Same as `let mut width = 180.0; width += 32.0;`
-  let height = 40;
+  const width = 180 + 32; // Same as `let mut width = 180.0; width += 32.0;`
+  const height = 40;
 
   if (mainWindow) {
     mainWindow.minimize(); // Réduire la première fenêtre
@@ -370,7 +438,7 @@ function createEditorWindow() {
   editorWindow.minimize();
 
   editorWindow.on("resize", () => {
-    editorWindow.setSize(MAIN_WINDOW_SIZE.width, MAIN_WINDOW_SIZE.height);
+    editorWindow?.setSize(MAIN_WINDOW_SIZE.width, MAIN_WINDOW_SIZE.height);
   });
 
   // En développement, charge l'URL de dev de Vite
@@ -389,6 +457,37 @@ function createEditorWindow() {
 
   editorWindow.on("closed", () => {
     editorWindow = null;
+  });
+}
+
+function createSetupWindow() {
+  setupWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    titleBarStyle: "hidden",
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: true,
+      preload: path.join(__dirname, "../preload/index.js"),
+    },
+    resizable: false,
+    show: false,
+    icon: path.join(__dirname, "../assets/icon-128.png"),
+  });
+
+  // Charge la page de configuration
+  if (process.env.NODE_ENV === "development") {
+    setupWindow.loadURL("http://localhost:5173/setup");
+  } else {
+    setupWindow.loadFile(path.resolve(__dirname, "../renderer/setup.html"));
+  }
+
+  setupWindow.once("ready-to-show", () => {
+    setupWindow?.show();
+  });
+
+  setupWindow.on("closed", () => {
+    setupWindow = null;
   });
 }
 
@@ -430,47 +529,37 @@ async function performCapture() {
 async function handleClick(event: MouseEvent) {
   try {
     // Obtenir les infos de l'écran
-
+    // Obtenir les infos de l'écran
     const x = event.x;
     const y = event.y;
     const displays = screen.getAllDisplays();
     const primaryDisplay = displays[0];
-    /*  
-    const { scaleFactor } = primaryDisplay;
 
-    // Obtenir la position réelle en tenant compte du scaling
-    const x = Math.round(event.x / scaleFactor);
-    const y = Math.round(event.y / scaleFactor); */
-
-    /*     // Si une fenêtre spécifique est sélectionnée, ajuster les coordonnées
-    if (selectedPid?.startsWith("window:")) {
-      const activeWindow = BrowserWindow.getAllWindows().find(
-        (win) => win.getMediaSourceId() === selectedPid
-      );
-
-      if (activeWindow) {
-        const bounds = activeWindow.getBounds();
-        // Ajuster les coordonnées relatives à la fenêtre
-        const relativeX = x - bounds.x;
-        const relativeY = y - bounds.y;
-
-        broadcastToAllWindows("click-captured", {
-          x: relativeX,
-          y: relativeY,
-          absoluteX: x,
-          absoluteY: y,
-          windowBounds: bounds,
-          screenshot: captureBuffer?.screenshot,
-          timestamp: Date.now(),
-        });
-        return;
+    // Récupérer l'élément cliqué de manière sécurisée
+    let label = "";
+    try {
+      // Vérifier si event.target existe et si c'est un HTMLElement
+      const clickedElement = event.target as HTMLElement;
+      if (clickedElement && typeof clickedElement === "object") {
+        // Vérifier que innerText ou textContent existent avant d'y accéder
+        label =
+          (clickedElement.innerText !== undefined
+            ? clickedElement.innerText
+            : "") ||
+          (clickedElement.textContent !== undefined
+            ? clickedElement.textContent
+            : "") ||
+          `Point (${x},${y})`;
+      } else {
+        label = `Point (${x},${y})`;
       }
-    } */
-
-    const clickedElement = event.target as HTMLElement;
-
-    // Si l'élément possède un label ou un texte à récupérer
-    const label = clickedElement.innerText || clickedElement.textContent;
+    } catch (error) {
+      console.warn(
+        "Impossible de récupérer le texte de l'élément cliqué:",
+        error
+      );
+      label = `Point (${x},${y})`;
+    }
     // Pour les captures d'écran entier
     broadcastToAllWindows("click-captured", {
       x,
@@ -503,50 +592,6 @@ function stopRecording() {
   }
   captureBuffer = null;
 }
-
-/* async function captureScreen() {
-  try {
-    if (!isRecording) return;
-    const hasPermission = await hasScreenCapturePermission();
-    if (!hasPermission) {
-      const errorMessage =
-        process.platform === "darwin"
-          ? "Screen recording permission not granted. Please enable it in System Settings > Security & Privacy > Privacy > Screen Recording"
-          : "Screen recording permission not granted. Please allow the application to record your screen.";
-
-      throw new Error(errorMessage);
-    }
-
-    const displays = screen.getAllDisplays();
-    const primaryDisplay = displays[0];
-    const { width, height } = primaryDisplay.bounds;
-
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
-    const sources = await desktopCapturer.getSources({
-      types: ["window", "screen"],
-      thumbnailSize: {
-        width,
-        height,
-      },
-    });
-
-    // Pour Windows, gérer la barre de notification d'enregistrement
-    if (process.platform === "win32" && mainWindow) {
-      mainWindow.setAspectRatio(16 / 9);
-      mainWindow.focus();
-    }
-
-    return sources[0].thumbnail.toDataURL();
-    // biome-ignore lint/suspicious/noExplicitAny: <explanation>
-  } catch (error: any) {
-    console.error("Error capturing screen:", error);
-    if (mainWindow) {
-      mainWindow.webContents.send("screen-capture-error", error.message);
-    }
-    throw error;
-  }
-} */
 
 async function getActiveSourceId(
   selectedPid: string | null
@@ -604,13 +649,51 @@ function updateRecordingState(newState: boolean) {
   broadcastToAllWindows("recording-state-changed", isRecording);
 }
 
-// Attendre que l'app soit prête
-app.whenReady().then(async () => {
-  await createWindow();
+function checkAccessibilityPermission(): boolean {
+  if (process.platform !== "darwin") return true;
 
-  const hasPermission = await hasScreenCapturePermission();
-  console.log("Initial screen capture permission:", hasPermission);
+  // Sur macOS, vérifier si l'application a les permissions d'accessibilité
+  return systemPreferences.isTrustedAccessibilityClient(false);
+}
 
+// Fonction pour demander les permissions d'accessibilité
+function requestAccessibilityPermission(): void {
+  if (process.platform !== "darwin") return;
+
+  dialog
+    .showMessageBox({
+      type: "info",
+      title: "Permission d'accessibilité requise",
+      message:
+        "Cette application nécessite des permissions d'accessibilité pour fonctionner correctement.",
+      detail:
+        "Veuillez ouvrir les Préférences Système > Sécurité et confidentialité > Confidentialité > Accessibilité et ajouter cette application à la liste des applications autorisées.",
+      buttons: ["Ouvrir les préférences", "Ignorer"],
+    })
+    .then(({ response }) => {
+      if (response === 0) {
+        // Ouvrir les préférences d'accessibilité
+        shell.openExternal(
+          "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        );
+      }
+    });
+}
+
+function initApp() {
+  if (process.platform === "darwin") {
+    const hasAccessibilityPermission = checkAccessibilityPermission();
+
+    if (!hasAccessibilityPermission) {
+      console.log("Permissions d'accessibilité non accordées");
+      requestAccessibilityPermission();
+
+      // Si l'accessibilité est requise, ne pas continuer
+      return;
+    }
+  }
+
+  createWindow();
   // biome-ignore lint/suspicious/noExplicitAny: <explanation>
   uIOhook.on("mousedown", async (event: any) => {
     const activeWindow = await getActiveSourceId(selectedPid);
@@ -643,39 +726,60 @@ app.whenReady().then(async () => {
   });
 
   uIOhook.start();
-});
+}
 
-app.on("window-all-closed", () => {
-  stopRecording();
-  if (buttonInProgressWindow) {
-    buttonInProgressWindow.close();
-    buttonInProgressWindow = null;
+function initSetup() {
+  //resetSetup();
+
+  if (isSetupCompleted() || isSetupCompleteFlag) {
+    initApp();
+    return;
   }
 
-  if (editorWindow) {
-    editorWindow.close();
-    editorWindow = null;
-  }
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
-});
+  createSetupWindow();
+}
 
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
+// Empêcher plusieurs instances de l'application
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const windows = require("electron").BrowserWindow.getAllWindows();
+    if (windows.length > 0) {
+      const mainWindow = windows[0];
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
 
-// Gérer le début de l'enregistrement
-/* ipcMain.handle("start-recording", async () => {
-  updateRecordingState(true);
+  app.on("activate", () => {
+    const windows = require("electron").BrowserWindow.getAllWindows();
+    if (windows.length === 0) {
+      initSetup();
+    }
+  });
 
-  createWindowInProgressButtons();
-  createEditorWindow();
+  app.whenReady().then(() => {
+    initSetup();
+  });
 
-  return true;
-}); */
+  app.on("window-all-closed", () => {
+    stopRecording();
+    if (buttonInProgressWindow) {
+      buttonInProgressWindow.close();
+      buttonInProgressWindow = null;
+    }
+
+    if (editorWindow) {
+      editorWindow.close();
+      editorWindow = null;
+    }
+    if (process.platform !== "darwin") {
+      app.quit();
+    }
+  });
+}
 
 ipcMain.handle("start-recording", async () => {
   try {
@@ -801,7 +905,8 @@ ipcMain.on("restart-recording", (_: any) => {
 });
 
 async function handleAuthCallback() {
-  const cookies = await authWindow.webContents.session.cookies.get({});
+  if (!authWindow) return;
+  const cookies = await authWindow?.webContents.session.cookies.get({});
 
   // Chercher le cookie next-auth.session-token
   const sessionCookie = cookies.find(
@@ -816,17 +921,26 @@ async function handleAuthCallback() {
     // Sauvegarder le token
     const authData = {
       token: sessionCookie.value,
-      expires: new Date(sessionCookie.expirationDate! * 1000).getTime(),
+      // biome-ignore lint/style/noNonNullAssertion: <explanation>
+      expires: new Date(sessionCookie?.expirationDate! * 1000).getTime(),
     };
 
     console.log(authData);
     store.setItem(NAME_STORE_AUTH, authData);
     authWindow?.close();
+    return true;
   }
 }
 
 ipcMain.handle("auth:start", async () => {
   try {
+    // Si une fenêtre d'authentification existe déjà, la fermer proprement
+    if (authWindow && !authWindow.isDestroyed()) {
+      authWindow.close();
+      await new Promise((resolve) => setTimeout(resolve, 100)); // Petit délai pour la fermeture
+    }
+
+    // Recréer la fenêtre
     const AUTH_WINDOW_SIZE = { width: 1000, height: 800 };
     authWindow = new BrowserWindow({
       ...AUTH_WINDOW_SIZE,
@@ -834,39 +948,123 @@ ipcMain.handle("auth:start", async () => {
         nodeIntegration: false,
         contextIsolation: true,
       },
+      titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
+      frame: process.platform !== "darwin",
     });
 
-    authWindow?.webContents.on("will-navigate", (_: any, url: string) => {
-      console.log("Navigation to:", url); // Pour debug
-      handleAuthCallback();
-    });
+    // Référence locale pour éviter des problèmes si authWindow devient null
+    const currentAuthWindow = authWindow;
 
-    authWindow?.webContents.on(
-      "did-navigate-in-page",
-      async (_: any, url: string) => {
-        console.log("In-page navigation to:", url); // Pour debug
+    // Configurer les écouteurs d'événements
+    const navigateHandler = (_: any, url: string) => {
+      if (currentAuthWindow && !currentAuthWindow.isDestroyed()) {
+        console.log("Navigation to:", url);
         handleAuthCallback();
       }
-    );
+    };
 
-    authWindow?.webContents.on("did-finish-load", () => {
-      const currentURL = authWindow?.webContents.getURL();
-      console.log("Page loaded:", currentURL); // Pour debug
-      handleAuthCallback();
+    const loadHandler = () => {
+      if (currentAuthWindow && !currentAuthWindow.isDestroyed()) {
+        handleAuthCallback();
+        const currentURL = currentAuthWindow.webContents.getURL();
+        console.log("Page loaded:", currentURL);
+        // handleAuthCallback();
+      }
+    };
+
+    // Attacher les écouteurs d'événements de manière sécurisée
+    if (
+      currentAuthWindow.webContents &&
+      !currentAuthWindow.webContents.isDestroyed()
+    ) {
+      currentAuthWindow.webContents.on("will-navigate", navigateHandler);
+      currentAuthWindow.webContents.on("did-navigate-in-page", navigateHandler);
+      currentAuthWindow.webContents.on("did-finish-load", loadHandler);
+    }
+
+    authWindow.webContents.on("did-navigate", async (_, url) => {
+      console.log("Navigation vers:", url);
+
+      // Fermer la fenêtre si nous sommes sur une page autre que la page d'authentification
+      if (!url.includes("/auth/signin")) {
+        console.log("Page différente de auth/signin détectée");
+
+        // Essayer de récupérer les cookies
+        handleAuthCallback();
+
+        // Fermer la fenêtre
+        setTimeout(() => {
+          if (authWindow && !authWindow.isDestroyed()) {
+            authWindow.close();
+            authWindow = null;
+
+            // Notifier le reste de l'application
+            BrowserWindow.getAllWindows().forEach((window) => {
+              if (!window.isDestroyed()) {
+                window.webContents.send("auth:success", {});
+              }
+            });
+          }
+        }, 500);
+      }
     });
 
-    await authWindow.loadURL(`${process.env.VITE_API_URL}/auth/signin`);
-
-    authWindow.webContents.openDevTools();
-
-    authWindow.on("closed", () => {
-      authWindow = null;
+    // Gérer la fermeture de la fenêtre
+    currentAuthWindow.on("closed", () => {
+      if (authWindow === currentAuthWindow) {
+        authWindow = null;
+      }
     });
+
+    // Charger l'URL de manière sécurisée
+    if (currentAuthWindow && !currentAuthWindow.isDestroyed()) {
+      const apiUrl = process.env.VITE_API_URL || "http://localhost:3001";
+
+      try {
+        await currentAuthWindow.loadURL(`${apiUrl}/auth/signin`);
+      } catch (loadError) {
+        console.warn(
+          "Erreur lors du chargement de la page de connexion:",
+          loadError
+        );
+
+        // Si l'erreur est due à une redirection (utilisateur déjà connecté)
+        if (currentAuthWindow && !currentAuthWindow.isDestroyed()) {
+          try {
+            await currentAuthWindow.loadURL(`${apiUrl}/api/auth/session`);
+          } catch (sessionError) {
+            console.error(
+              "Erreur lors du chargement de la page de session:",
+              sessionError
+            );
+            // Si même la page de session échoue, on abandonne
+            if (currentAuthWindow && !currentAuthWindow.isDestroyed()) {
+              currentAuthWindow.close();
+            }
+            return false;
+          }
+        }
+      }
+    }
 
     return true;
   } catch (error) {
     console.error("Auth start error:", error);
-    throw error;
+
+    // Nettoyer les ressources
+    if (authWindow && !authWindow.isDestroyed()) {
+      try {
+        authWindow.close();
+      } catch (closeError) {
+        console.warn(
+          "Erreur lors de la fermeture de la fenêtre d'authentification:",
+          closeError
+        );
+      }
+      authWindow = null;
+    }
+
+    return false;
   }
 });
 
@@ -877,6 +1075,140 @@ ipcMain.handle("auth:check", () => {
 ipcMain.handle("auth:logout", () => {
   store.removeItem(NAME_STORE_AUTH);
   return true;
+});
+
+// Gestionnaires d'événements IPC pour l'installation
+ipcMain.handle("setup:check-permissions", async () => {
+  return await checkAccessibilityPermission();
+});
+
+ipcMain.handle("setup:request-permission", async () => {
+  /*  if (process.platform === "darwin" && permission === "screen") {
+    // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+    return await systemPreferences.askForMediaAccess(permission as any);
+  } */
+  if (process.platform === "darwin") {
+    const hasAccessibilityPermission = checkAccessibilityPermission();
+
+    if (!hasAccessibilityPermission) {
+      console.log("Permissions d'accessibilité non accordées");
+      requestAccessibilityPermission();
+
+      // Si l'accessibilité est requise, ne pas continuer
+      return false;
+    }
+  }
+  return true;
+});
+
+ipcMain.handle("setup:create-directories", async () => {
+  try {
+    ensureAppDirectories();
+    return true;
+  } catch (error) {
+    console.error("Error creating app directories:", error);
+    return false;
+  }
+});
+
+/* ipcMain.handle("setup:complete", async () => {
+  try {
+    // Enregistre la complétion de l'installation et la version actuelle
+    store.setItem(SETUP_COMPLETED_KEY, true);
+    store.setItem(APP_VERSION_KEY, app.getVersion());
+
+    // Ferme la fenêtre de configuration
+    if (setupWindow) {
+      setupWindow.close();
+      setupWindow = null;
+    }
+
+    // Démarre l'application principale
+    initApp();
+    return true;
+  } catch (error) {
+    console.error("Error completing setup:", error);
+    return false;
+  }
+}); */
+
+// Version améliorée de completeSetup pour l'environnement de production
+ipcMain.handle("setup:complete", async () => {
+  try {
+    console.log("Début du processus de complétion de l'installation");
+
+    // Enregistrer les informations d'installation
+    store.setItem(SETUP_COMPLETED_KEY, true);
+    store.setItem(APP_VERSION_KEY, app.getVersion());
+    console.log("Informations d'installation enregistrées avec succès");
+
+    // Au lieu de démarrer l'application principale directement,
+    // utiliser app.relaunch() et app.exit() pour un redémarrage propre
+    if (setupWindow && !setupWindow.isDestroyed()) {
+      setupWindow.webContents.send("setup:completing");
+
+      // Attendre un peu pour que le message soit envoyé
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Afficher un dialogue de confirmation
+      await dialog.showMessageBox(setupWindow, {
+        type: "info",
+        title: "Installation terminée",
+        message: "L'installation a été complétée avec succès.",
+        detail:
+          "L'application va maintenant redémarrer pour appliquer les changements.",
+        buttons: ["Redémarrer maintenant"],
+      });
+
+      // Redémarrer l'application
+      console.log("Redémarrage de l'application...");
+      app.relaunch({
+        args: [
+          ...process.argv.filter((arg) => arg !== SETUP_COMPLETE_FLAG),
+          SETUP_COMPLETE_FLAG,
+        ],
+      });
+      app.exit(0);
+    } else {
+      console.warn("Fenêtre d'installation non disponible, redémarrage direct");
+      app.relaunch({
+        args: [
+          ...process.argv.filter((arg) => arg !== SETUP_COMPLETE_FLAG),
+          SETUP_COMPLETE_FLAG,
+        ],
+      });
+      app.exit(0);
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Erreur lors de la complétion de l'installation:", error);
+
+    // Tenter un redémarrage même en cas d'erreur
+    try {
+      app.relaunch({
+        args: [
+          ...process.argv.filter((arg) => arg !== SETUP_COMPLETE_FLAG),
+          SETUP_COMPLETE_FLAG,
+        ],
+      });
+      app.exit(1); // Code d'erreur différent
+    } catch (relaunchError) {
+      console.error("Échec du redémarrage d'urgence:", relaunchError);
+    }
+
+    return false;
+  }
+});
+
+ipcMain.handle("shell:open-url", async (_, url) => {
+  try {
+    console.log(`Ouverture de l'URL: ${url}`);
+    return await openInDefaultBrowser(url);
+  } catch (error) {
+    console.error("Erreur lors de l'ouverture de l'URL via commande:", error);
+    throw error;
+  }
 });
 
 // IPC handler pour la capture d'écran

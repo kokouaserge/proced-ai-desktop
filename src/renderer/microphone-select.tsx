@@ -30,7 +30,7 @@ export function MicrophoneSelect(props: {
               }}
             >
               {!props.permissionGranted
-                ? "Request Permission"
+                ? "coming soon"
                 : props.value !== null
                 ? "On"
                 : "Off"}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { EditorHeader } from "./editor-header";
-import { Step } from "../types";
+import type { Step } from "../types";
 import { StepsList } from "./step-list";
 
 export function App() {
@@ -8,6 +8,7 @@ export function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [_, setIsRecording] = useState(false);
   const [isAuthed, setIsAuthed] = useState(false);
+  const [token, setToken] = useState("");
   const lastClickRef = useRef<{ x: number; y: number; time: number } | null>(
     null
   );
@@ -24,6 +25,7 @@ export function App() {
     const checkAuth = async () => {
       const auth = await window.electronAPI.auth.check();
       if (auth) {
+        setToken(auth.token);
         return setIsAuthed(true);
       }
       return setIsAuthed(false);
@@ -78,20 +80,29 @@ export function App() {
 
         lastClickRef.current = { x: event.x, y: event.y, time: now };
 
+        // Utiliser label s'il existe, sinon utiliser une description par défaut
+        const clickDescription =
+          event.label ||
+          event.description ||
+          `Click at (${event.x}, ${event.y})`;
+
         const newStep: Step = {
           type: "click",
-          description: `Click at ${event.label}`,
+          description: clickDescription,
           timestamp: new Date().toISOString(),
           screenshot: event.screenshot,
           cursor: {
-            absolute: { x: event?.absoluteX, y: event?.absoluteY },
+            absolute: {
+              x: event?.absoluteX !== undefined ? event.absoluteX : event.x,
+              y: event?.absoluteY !== undefined ? event.absoluteY : event.y,
+            },
             percentage: {
-              x: (event.x / window.innerWidth) * 100,
-              y: (event.y / window.innerHeight) * 100,
+              x: window?.innerWidth ? (event.x / window.innerWidth) * 100 : 0,
+              y: window?.innerHeight ? (event.y / window.innerHeight) * 100 : 0,
             },
             viewport: {
-              width: window.innerWidth,
-              height: window.innerHeight,
+              width: window?.innerWidth || 0,
+              height: window?.innerHeight || 0,
             },
           },
         };
@@ -122,7 +133,7 @@ export function App() {
 
   return (
     <div className="w-screen h-screen flex flex-col">
-      <EditorHeader isAuthed={isAuthed} />
+      <EditorHeader isAuthed={isAuthed} token={token} steps={steps} />
       <div
         className="p-5 pt-10 flex-1 w-full overflow-y-hidden flex flex-col gap-4 bg-gray-50 leading-5 animate-in fade-in"
         id="drgDrop"

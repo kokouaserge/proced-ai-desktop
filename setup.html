@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      :root {
+        --primary-color: #4682b4;
+        --primary-dark: #3a6d96;
+        --success-color: #5cb85c;
+        --error-color: #d9534f;
+        --background-color: #f5f5f5;
+        --text-color: #333;
+        --border-color: #ddd;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background-color: var(--background-color);
+        color: var(--text-color);
+        margin: 0;
+        padding: 0;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .setup-wizard {
+        width: 700px;
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+      }
+
+      .setup-progress {
+        display: flex;
+        background-color: #f8f9fa;
+        border-bottom: 1px solid var(--border-color);
+        padding: 0;
+        margin: 0;
+      }
+
+      .progress-step {
+        flex: 1;
+        padding: 15px 10px;
+        text-align: center;
+        font-size: 14px;
+        position: relative;
+        border-bottom: 3px solid transparent;
+      }
+
+      .progress-step.active {
+        border-bottom-color: var(--primary-color);
+        font-weight: bold;
+      }
+
+      .setup-content {
+        padding: 30px;
+      }
+
+      .setup-step {
+        min-height: 250px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .setup-step h2 {
+        margin-top: 0;
+        color: var(--primary-color);
+        font-size: 24px;
+      }
+
+      .setup-step p {
+        margin-bottom: 25px;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      button {
+        background-color: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 10px 20px;
+        font-size: 16px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        margin-top: auto;
+        align-self: flex-end;
+      }
+
+      button:hover {
+        background-color: var(--primary-dark);
+      }
+
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+
+      .error-message {
+        background-color: #f8d7da;
+        color: var(--error-color);
+        padding: 10px 15px;
+        border-radius: 4px;
+        margin-bottom: 15px;
+        font-size: 14px;
+      }
+
+      ul {
+        list-style-type: none;
+        padding: 0;
+      }
+
+      li {
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+      }
+
+      li button {
+        margin-top: 0;
+        margin-left: 10px;
+        padding: 5px 10px;
+        font-size: 14px;
+      }
+
+      li.success {
+        color: var(--success-color);
+        font-weight: bold;
+      }
+
+      /* Animation de chargement */
+      @keyframes spinner {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .loading::after {
+        content: "";
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        border-top-color: white;
+        animation: spinner 0.6s linear infinite;
+        margin-left: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/renderer/main-setup.tsx"></script>
+  </body>
+</html>

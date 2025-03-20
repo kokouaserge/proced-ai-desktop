@@ -7,6 +7,7 @@ const localStorageI = new LocalStorage(
 );
 
 export const store = {
+  // biome-ignore lint/suspicious/noExplicitAny: <explanation>
   setItem(key: string, value: any) {
     localStorageI.setItem(key, JSON.stringify(value));
   },

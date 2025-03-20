@@ -12,10 +12,10 @@
     "build": "npm run build:preload && npm run build:electron && tsc && vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "build:preload": "tsc -p tsconfig.preload.json",
-    "pack": "NODE_ENV=development VITE_API_URL=https://app.proced.ai && electron-builder --mac --dir",
+    "pack": "NODE_ENV=development VITE_API_URL=http://localhost:3001 && electron-builder --mac --dir",
     "dist": "NODE_ENV=development VITE_API_URL=https://app.proced.ai && electron-builder --mac",
     "postinstall": "electron-builder install-app-deps",
-    "dev:electron": "cross-env NODE_ENV=development VITE_API_URL=https://app.proced.ai electron .  --enable-logging",
+    "dev:electron": "cross-env NODE_ENV=development VITE_API_URL=http://localhost:3001 electron .  --enable-logging",
     "dev:all": "cross-env NODE_ENV=development VITE_API_URL=https://app.proced.ai concurrently \"npm run dev\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
     "preview": "vite preview"
   },

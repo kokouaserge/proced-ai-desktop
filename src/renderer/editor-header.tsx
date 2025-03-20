@@ -1,9 +1,19 @@
 import { useState } from "react";
 import { cn } from "./ui/cn";
 import { Button } from "./ui/button";
+import type { Step } from "../types";
 
-export function EditorHeader({ isAuthed }: { isAuthed: boolean }) {
+export function EditorHeader({
+  isAuthed,
+  token,
+  steps,
+}: {
+  isAuthed: boolean;
+  token: string;
+  steps: Step[];
+}) {
   const [isWindows] = useState(navigator.platform.includes("Win"));
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   return (
     <div
       id="drgDrop"
@@ -17,13 +27,35 @@ export function EditorHeader({ isAuthed }: { isAuthed: boolean }) {
         <div className="relative mt-4">
           <Button
             variant="primary"
-            onClick={() => {
-              if (isAuthed) console.log("enter");
-              /*  trackEvent("export_button_clicked");
-              setShowExportOptions(!showExportOptions()); */
+            disabled={isLoading}
+            onClick={async () => {
+              if (isAuthed) {
+                setIsLoading(true);
+                console.log(token);
+                const domain = "http://localhost:3001/"; //https://app.proced.ai
+
+                try {
+                  const response = await fetch(domain + "api/new-document", {
+                    method: "POST",
+                    body: JSON.stringify({ name: "Desktop", steps }),
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                  });
+
+                  const result = await response.json();
+                  await window.electronAPI.openInDefaultBrowser(
+                    `${domain}${result.url}`
+                  );
+                  setIsLoading(false);
+                } catch (err) {
+                  console.log(err);
+                }
+              }
             }}
           >
-            Enregistrer l'enregistrement
+            {isLoading ? "Chargement..." : "Enregistrer l'enregistrement"}
           </Button>
         </div>
       </div>

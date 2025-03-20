@@ -30,7 +30,7 @@ export function CameraSelect(props: {
               }}
             >
               {!props.permissionGranted
-                ? "Request Permission"
+                ? "Coming soon"
                 : props.value !== null
                 ? "On"
                 : "Off"}
