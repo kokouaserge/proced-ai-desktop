@@ -31,11 +31,10 @@ export function EditorHeader({
             onClick={async () => {
               if (isAuthed) {
                 setIsLoading(true);
-                console.log(token);
-                const domain = "http://localhost:3001/"; //https://app.proced.ai
+                const domain = "https://app.proced.ai/"; //https://app.proced.ai
 
                 try {
-                  const response = await fetch(domain + "api/new-document", {
+                  const response = await fetch(`${domain}api/new-document`, {
                     method: "POST",
                     body: JSON.stringify({ name: "Desktop", steps }),
                     headers: {
@@ -51,6 +50,7 @@ export function EditorHeader({
                   setIsLoading(false);
                 } catch (err) {
                   console.log(err);
+                  setIsLoading(false);
                 }
               }
             }}
